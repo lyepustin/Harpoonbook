@@ -1,0 +1,38 @@
+---
+description: Procesar audio de una salida de pesca (transcribir, revisar con el usuario y registrar en Harpoonbook)
+alwaysApply: false
+---
+
+# Procesar audio de salida
+
+Cuando el usuario aporte un audio (`.ogg`, `.mp3`, `.m4a`, `.wav`, etc.) contando cómo fue la pesca, sigue este flujo. **No insertes la salida hasta que el usuario confirme.**
+
+## 1. Transcribir
+
+- Usa Whisper local (`openai-whisper`, modelo `base`, `language="es"`, `fp16=False`).
+- En PowerShell, escribe el script en un `.py` temporal (evita fallos con `python -c` y comillas); bórralo al terminar.
+- Muestra texto crudo + versión interpretada (nombres de spots, vocabulario de pesca).
+
+## 2. Presentar borrador y dudar en voz alta
+
+Antes de tocar la BD, entrega:
+
+- Resumen propuesto: sitio, fecha/hora, dirección, agua, apneas, capturas (o 0), avistamientos.
+- Tabla de dudas (boyas, especies, capturas vs solo visto, hora exacta).
+- Espera correcciones del usuario.
+
+## 3. Registrar solo tras confirmación
+
+- Inserta con `add_trip` / `FishingTrip` + `TripSighting` (`harpoonbook.db`).
+- Preset de agua: `suggest_water_for_window` para el día/spot; ajusta turbidez/visibilidad/corriente si el audio lo contradice.
+- Sitio: IDs de `fishing_spots` (p. ej. `cabo_roig_calas`). Métodos: `DEFAULT_METHODS` (coma-separados si varios).
+- Especies: solo IDs existentes en `species`. Si falta una (p. ej. Lisa/mújol), créala con `create_species` y añádela a `SEED_SPECIES` en `config.py`.
+- Capturas: `caught_count=0` y `shot_quality="n_a"` si no pescó. Notas del audio en `notas` del trip; detalle fino en `notes` de cada avistamiento.
+- Confirma con el `trip_id` y un resumen corto.
+
+## Errores a evitar
+
+- **Mújol ≠ dentón.** Mújol = lisa (`lisa`). No inventar mapeos fonéticos.
+- No asumir captura porque “pillé” / “conchas”: preguntar. Conchas alrededor de cuevas de pulpo = indicios, no captura.
+- No inventar especies: usar `otro` + nota, o crear la especie si el usuario lo confirma.
+- No commits de git a menos que lo pida.

@@ -231,32 +231,367 @@ def _rank_period(period: dict[str, Any]) -> tuple[int, int, int]:
     return (highlighted, activity, group)
 
 
+def _parse_iso_dt(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(value))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=LOCAL_TZ)
+    return dt
+
+
+def _daylight_overlap(
+    start: datetime,
+    end: datetime,
+    sunrise: datetime,
+    sunset: datetime,
+) -> tuple[datetime, datetime] | None:
+    """Intersección del periodo solunar con [amanecer, ocaso]. None si no hay solape."""
+    lo = max(start, sunrise)
+    hi = min(end, sunset)
+    if lo >= hi:
+        return None
+    return lo, hi
+
+
 def _compute_best_hour_and_windows(
     periods: list[dict[str, Any]],
-) -> tuple[str | None, list[dict[str, Any]]]:
+    sunrise_dt: datetime | None = None,
+    sunset_dt: datetime | None = None,
+) -> tuple[str | None, list[dict[str, Any]], list[dict[str, Any]]]:
+    """
+    Elige mejores franjas priorizando horario legal de pescasub (amanecer–ocaso).
+
+    Returns:
+        best_hour, best_exit, daylight_windows (ordenadas), night_windows (resto)
+    """
     highlighted = [p for p in periods if p.get("highlighted")]
-    candidates = highlighted if highlighted else [p for p in periods if p.get("activity") == "alta"]
-    if not candidates:
-        candidates = periods[:]
+    majors = [
+        p
+        for p in periods
+        if p.get("period_group") == "major" and p.get("activity") == "alta"
+    ]
+    altas = [p for p in periods if p.get("activity") == "alta"]
+    # Preferir los dos periodos mayores; highlighted solo prioriza el orden.
+    candidates = majors or highlighted or altas or periods[:]
 
-    ranked = sorted(candidates, key=_rank_period)
-    best_windows: list[dict[str, Any]] = []
-    for period in ranked:
-        entry = _entry_time_for_period(period)
-        best_windows.append(
-            {
-                **period,
-                "entry_time": entry.isoformat(),
-            }
-        )
+    use_daylight = sunrise_dt is not None and sunset_dt is not None
+    daylight_windows: list[dict[str, Any]] = []
+    night_windows: list[dict[str, Any]] = []
 
-    best_hour = best_windows[0]["entry_time"] if best_windows else None
-    return best_hour, best_windows
+    for period in sorted(candidates, key=_rank_period):
+        start = _parse_iso_dt(period.get("start"))
+        end = _parse_iso_dt(period.get("end"))
+        if not start or not end:
+            continue
+
+        if use_daylight:
+            overlap = _daylight_overlap(start, end, sunrise_dt, sunset_dt)
+            if overlap:
+                day_start, day_end = overlap
+                entry = max(_entry_time_for_period(period), day_start)
+                if entry >= day_end:
+                    entry = day_start
+                daylight_windows.append(
+                    {
+                        **period,
+                        "start": day_start.isoformat(),
+                        "end": day_end.isoformat(),
+                        "entry_time": entry.isoformat(),
+                        "exit_time": day_end.isoformat(),
+                        "daylight": True,
+                        "solunar_start": period.get("start"),
+                        "solunar_end": period.get("end"),
+                    }
+                )
+            else:
+                night_windows.append(
+                    {
+                        **period,
+                        "entry_time": _entry_time_for_period(period).isoformat(),
+                        "exit_time": end.isoformat(),
+                        "daylight": False,
+                    }
+                )
+        else:
+            entry = _entry_time_for_period(period)
+            daylight_windows.append(
+                {
+                    **period,
+                    "entry_time": entry.isoformat(),
+                    "exit_time": end.isoformat(),
+                    "daylight": True,
+                }
+            )
+
+    # Si no hay solape diurno entre candidatos, probar todos los periodos del día.
+    if use_daylight and not daylight_windows:
+        for period in sorted(periods, key=_rank_period):
+            start = _parse_iso_dt(period.get("start"))
+            end = _parse_iso_dt(period.get("end"))
+            if not start or not end:
+                continue
+            overlap = _daylight_overlap(start, end, sunrise_dt, sunset_dt)
+            if not overlap:
+                continue
+            day_start, day_end = overlap
+            entry = max(_entry_time_for_period(period), day_start)
+            if entry >= day_end:
+                entry = day_start
+            daylight_windows.append(
+                {
+                    **period,
+                    "start": day_start.isoformat(),
+                    "end": day_end.isoformat(),
+                    "entry_time": entry.isoformat(),
+                    "exit_time": day_end.isoformat(),
+                    "daylight": True,
+                    "solunar_start": period.get("start"),
+                    "solunar_end": period.get("end"),
+                }
+            )
+
+    # Con amanecer/ocaso conocidos: no proponer entrada nocturna (pescasub de día).
+    if use_daylight:
+        best_hour = daylight_windows[0]["entry_time"] if daylight_windows else None
+        best_exit = daylight_windows[0]["exit_time"] if daylight_windows else None
+    else:
+        fallback = daylight_windows or night_windows
+        best_hour = fallback[0]["entry_time"] if fallback else None
+        best_exit = fallback[0]["exit_time"] if fallback else None
+    return best_hour, best_exit, daylight_windows, night_windows
 
 
-def parse_solunar_from_soup(soup: BeautifulSoup, now: datetime | None = None) -> dict[str, Any]:
+def refine_solunar_for_daylight(solunar: dict[str, Any] | None) -> dict[str, Any]:
+    """
+    Reaplica filtro amanecer–ocaso sobre un solunar ya guardado (snapshots viejos).
+
+    Actualiza best_hour / best_exit / best_windows a franjas diurnas; deja night_windows aparte.
+    """
+    if not solunar:
+        return {}
+    out = dict(solunar)
+    sunrise_dt = _parse_iso_dt(out.get("sunrise_time"))
+    sunset_dt = _parse_iso_dt(out.get("sunset_time"))
+    periods = list(out.get("periods") or out.get("best_windows") or [])
+    if not periods:
+        return out
+
+    best_hour, best_exit, day_windows, night_windows = _compute_best_hour_and_windows(
+        periods, sunrise_dt, sunset_dt
+    )
+    out["best_hour"] = best_hour
+    out["best_exit"] = best_exit
+    out["best_windows"] = day_windows
+    out["night_windows"] = night_windows
+    if sunrise_dt:
+        out["sunrise_time"] = sunrise_dt.isoformat()
+    if sunset_dt:
+        out["sunset_time"] = sunset_dt.isoformat()
+    return out
+
+
+# Margen mínimo para considerar una franja aún útil (entrada futura o resto de ventana).
+_MIN_REMAINING = timedelta(minutes=20)
+
+
+def _window_from_period(
+    period: dict[str, Any],
+    sunrise_dt: datetime | None,
+    sunset_dt: datetime | None,
+) -> dict[str, Any] | None:
+    """Recorte diurno de un periodo; None si no hay solape con amanecer–ocaso."""
+    start = _parse_iso_dt(period.get("start"))
+    end = _parse_iso_dt(period.get("end"))
+    if not start or not end:
+        return None
+
+    if sunrise_dt is not None and sunset_dt is not None:
+        overlap = _daylight_overlap(start, end, sunrise_dt, sunset_dt)
+        if not overlap:
+            return None
+        day_start, day_end = overlap
+        entry = max(_entry_time_for_period(period), day_start)
+        if entry >= day_end:
+            entry = day_start
+        return {
+            **period,
+            "start": day_start.isoformat(),
+            "end": day_end.isoformat(),
+            "entry_time": entry.isoformat(),
+            "exit_time": day_end.isoformat(),
+            "daylight": True,
+            "solunar_start": period.get("start"),
+            "solunar_end": period.get("end"),
+        }
+
+    entry = _entry_time_for_period(period)
+    return {
+        **period,
+        "entry_time": entry.isoformat(),
+        "exit_time": end.isoformat(),
+        "daylight": True,
+    }
+
+
+def all_daylight_windows(solunar: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """Todas las franjas diurnas del día (majors + minors), ordenadas por calidad."""
+    return _all_daylight_windows(solunar or {})
+
+
+def _all_daylight_windows(solunar: dict[str, Any]) -> list[dict[str, Any]]:
+    """Todas las franjas diurnas del día (majors + minors), ordenadas por calidad."""
+    sunrise_dt = _parse_iso_dt(solunar.get("sunrise_time"))
+    sunset_dt = _parse_iso_dt(solunar.get("sunset_time"))
+    periods = list(solunar.get("periods") or solunar.get("best_windows") or [])
+    windows: list[dict[str, Any]] = []
+    for period in periods:
+        win = _window_from_period(period, sunrise_dt, sunset_dt)
+        if win:
+            windows.append(win)
+    return sorted(windows, key=_rank_period)
+
+
+def _is_window_still_useful(window: dict[str, Any], now: datetime) -> bool:
+    """True si queda al menos ~20 min de franja o la entrada aún no ha llegado."""
+    exit_dt = _parse_iso_dt(window.get("exit_time") or window.get("end"))
+    entry_dt = _parse_iso_dt(window.get("entry_time") or window.get("start"))
+    if not exit_dt:
+        return False
+    if exit_dt <= now:
+        return False
+    if entry_dt and entry_dt > now:
+        return True
+    return (exit_dt - now) >= _MIN_REMAINING
+
+
+def _rank_upcoming(window: dict[str, Any], now: datetime) -> tuple:
+    """Calidad primero; a igualdad, la más cercana en el tiempo."""
+    entry_dt = _parse_iso_dt(window.get("entry_time") or window.get("start"))
+    # Segundos hasta la entrada (0 si ya estamos dentro).
+    if entry_dt is None:
+        proximity = 0
+    elif entry_dt <= now:
+        proximity = 0
+    else:
+        proximity = int((entry_dt - now).total_seconds())
+    return (*_rank_period(window), proximity)
+
+
+def select_next_daylight_window(
+    solunar: dict[str, Any] | None,
+    now: datetime | None = None,
+    *,
+    lookahead: list[dict[str, Any]] | None = None,
+) -> dict[str, Any] | None:
+    """
+    Próxima franja diurna útil respecto a `now`.
+
+    1) Periodos diurnos de hoy (incl. media/menores) aún útiles.
+    2) Si no hay, mejor franja diurna de mañana (`lookahead`).
+    """
     now = now or datetime.now(tz=LOCAL_TZ)
-    base_date = now.date()
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=LOCAL_TZ)
+
+    today_windows = _all_daylight_windows(solunar or {})
+    upcoming_today = [w for w in today_windows if _is_window_still_useful(w, now)]
+    if upcoming_today:
+        best = min(upcoming_today, key=lambda w: _rank_upcoming(w, now))
+        out = dict(best)
+        out["for_date"] = (solunar or {}).get("for_date") or now.date().isoformat()
+        out["is_tomorrow"] = False
+        return out
+
+    for entry in lookahead or []:
+        day = entry.get("date")
+        day_solunar = entry.get("solunar") or {}
+        if not day_solunar:
+            continue
+        day_windows = _all_daylight_windows(day_solunar)
+        if not day_windows:
+            # Sin filtro por now: es un día futuro; coger la mejor del día.
+            continue
+        # Día futuro: todas las franjas son "próximas"; elegir por calidad.
+        best = min(day_windows, key=_rank_period)
+        out = dict(best)
+        out["for_date"] = day or day_solunar.get("for_date")
+        out["is_tomorrow"] = True
+        return out
+
+    return None
+
+
+def list_upcoming_daylight_windows(
+    solunar: dict[str, Any] | None,
+    now: datetime | None = None,
+    *,
+    lookahead: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """Franjas diurnas aún útiles hoy, más las de mañana (lookahead)."""
+    now = now or datetime.now(tz=LOCAL_TZ)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=LOCAL_TZ)
+
+    result: list[dict[str, Any]] = []
+    today_iso = (solunar or {}).get("for_date") or now.date().isoformat()
+    for w in _all_daylight_windows(solunar or {}):
+        if not _is_window_still_useful(w, now):
+            continue
+        item = dict(w)
+        item["for_date"] = today_iso
+        item["is_tomorrow"] = False
+        result.append(item)
+    result.sort(key=lambda w: _rank_upcoming(w, now))
+
+    for entry in lookahead or []:
+        day = entry.get("date")
+        day_solunar = entry.get("solunar") or {}
+        day_windows = sorted(_all_daylight_windows(day_solunar), key=_rank_period)
+        for w in day_windows:
+            item = dict(w)
+            item["for_date"] = day or day_solunar.get("for_date")
+            item["is_tomorrow"] = True
+            result.append(item)
+
+    return result
+
+
+def refine_solunar_for_now(
+    solunar: dict[str, Any] | None,
+    now: datetime | None = None,
+    *,
+    lookahead: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """
+    Como refine_solunar_for_daylight, más next_window / upcoming_windows
+    filtrados por la hora actual (y opcionalmente mañana).
+    """
+    out = refine_solunar_for_daylight(solunar)
+    if not out and not lookahead:
+        return {}
+    now = now or datetime.now(tz=LOCAL_TZ)
+    next_win = select_next_daylight_window(out, now, lookahead=lookahead)
+    upcoming = list_upcoming_daylight_windows(out, now, lookahead=lookahead)
+    out["next_window"] = next_win
+    out["upcoming_windows"] = upcoming
+    if next_win:
+        out["best_hour"] = next_win.get("entry_time")
+        out["best_exit"] = next_win.get("exit_time")
+    return out
+
+
+def parse_solunar_from_soup(
+    soup: BeautifulSoup,
+    now: datetime | None = None,
+    *,
+    base_date: date | None = None,
+) -> dict[str, Any]:
+    now = now or datetime.now(tz=LOCAL_TZ)
+    base_date = base_date or now.date()
 
     activity_day: str | None = None
     activity_el = soup.select_one(".salida_puesta_luna_actividad_dia_titulo1")
@@ -271,7 +606,9 @@ def parse_solunar_from_soup(soup: BeautifulSoup, now: datetime | None = None) ->
 
     sunrise_dt, sunset_dt = _parse_sun_times(soup, base_date)
     periods = _parse_period_blocks(soup, base_date)
-    best_hour, best_windows = _compute_best_hour_and_windows(periods)
+    best_hour, best_exit, best_windows, night_windows = _compute_best_hour_and_windows(
+        periods, sunrise_dt, sunset_dt
+    )
     moon_times = _parse_moon_times(soup)
     moon_phase = _parse_moon_phase(soup)
 
@@ -279,12 +616,15 @@ def parse_solunar_from_soup(soup: BeautifulSoup, now: datetime | None = None) ->
     minor_periods = [p for p in periods if p["period_group"] == "minor" and p["activity"] == "media"]
 
     return {
+        "for_date": base_date.isoformat(),
         "activity_day": activity_day,
         "periods": periods,
         "major_periods": major_periods,
         "minor_periods": minor_periods,
         "best_hour": best_hour,
+        "best_exit": best_exit,
         "best_windows": best_windows,
+        "night_windows": night_windows,
         "sunrise_time": sunrise_dt.isoformat() if sunrise_dt else None,
         "sunset_time": sunset_dt.isoformat() if sunset_dt else None,
         **moon_times,

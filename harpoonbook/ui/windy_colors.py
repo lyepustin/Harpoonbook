@@ -168,13 +168,48 @@ def render_windy_legend_html() -> str:
     """
 
 
-def style_windy_table(df: pd.DataFrame) -> pd.io.formats.style.Styler:
+SELECTED_HOUR_STYLE = "box-shadow: inset 4px 0 0 #1565c0;"
+
+
+def apply_hour_highlight(
+    styler: pd.io.formats.style.Styler,
+    highlight_hour: int | None,
+    hour_col: str = "Hora",
+) -> pd.io.formats.style.Styler:
+    """Marca la fila de la franja seleccionada (columna Hora = HH:00)."""
+    if highlight_hour is None:
+        return styler
+    target = f"{int(highlight_hour):02d}:00"
+
+    def _hl(row: pd.Series) -> list[str]:
+        if str(row.get(hour_col, "")).strip() == target:
+            return [SELECTED_HOUR_STYLE] * len(row)
+        return [""] * len(row)
+
+    return styler.apply(_hl, axis=1)
+
+
+def style_hour_table(
+    df: pd.DataFrame,
+    highlight_hour: int | None,
+    *,
+    hour_col: str = "Hora",
+) -> pd.io.formats.style.Styler:
+    """Tabla simple (visibilidad / corrientes) con la franja activa resaltada."""
+    styler = df.style.hide(axis="index")
+    return apply_hour_highlight(styler, highlight_hour, hour_col=hour_col)
+
+
+def style_windy_table(
+    df: pd.DataFrame,
+    highlight_hour: int | None = None,
+) -> pd.io.formats.style.Styler:
     def _row_styles(row: pd.Series) -> list[str]:
         return [_cell_style(row[col], col) for col in row.index]
 
     display_format = {col: "{:.1f}" for col in NUMERIC_DISPLAY_COLUMNS if col in df.columns}
 
-    return (
+    styler = (
         df.style.apply(_row_styles, axis=1)
         .format(display_format, na_rep="—")
         .set_table_styles(
@@ -199,3 +234,4 @@ def style_windy_table(df: pd.DataFrame) -> pd.io.formats.style.Styler:
         )
         .hide(axis="index")
     )
+    return apply_hour_highlight(styler, highlight_hour)

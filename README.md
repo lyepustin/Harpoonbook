@@ -2,7 +2,7 @@
 
 Cuaderno de pesca submarina para el grupo.
 
-Harpoonbook junta en un solo sitio lo que miramos antes de entrar al agua (marea, solunar, viento, olas) y lo que aprendemos después de cada salida. La idea es tener menos dudas al elegir sitio y método, y más memoria de lo que ha funcionado.
+Harpoonbook junta en un solo sitio lo que miramos antes de entrar al agua (marea, solunar, viento, olas, corrientes, visibilidad) y lo que aprendemos después de cada salida. La idea es tener menos dudas al elegir sitio y método, y más memoria de lo que ha funcionado.
 
 No hace falta ser técnico para entenderlo ni para usarlo.
 
@@ -13,8 +13,8 @@ Antes de una salida, todos hacemos más o menos lo mismo: mirar el viento, las o
 Harpoonbook hace tres cosas:
 
 1. Te muestra las condiciones del mar para los sitios que tengáis dados de alta (calas, espigones, rompientes…).
-2. Te sugiere qué método tiene más sentido según esas condiciones y lo que ya sabemos de cada sitio.
-3. Cuando vuelves del agua, registras cómo te fue: nota del 0 al 10, método, visibilidad, si viste pulpos, notas rápidas.
+2. Te estima la visibilidad del agua según mar de fondo, oleaje, viento, marea, memoria de los últimos días y tipo de fondo del sitio.
+3. Cuando vuelves del agua, registras la salida: dirección de pesca, cómo estaba el agua, apneas y lo que viste/pescaste.
 
 Con el tiempo eso se convierte en historial del grupo: qué días salieron bien, en qué sitio y con qué técnica.
 
@@ -22,62 +22,64 @@ Con el tiempo eso se convierte en historial del grupo: qué días salieron bien,
 
 ### Panel principal
 
-Ahí aparece lo que miramos antes de mojarnos:
+Vista de decisión: arriba lo importante; el detalle se despliega si lo necesitas.
 
-- Solunar y marea: mejores franjas para entrar al agua, actividad del día, fase lunar.
-- Viento y olas (Windy): tabla por franjas de 3 horas, con colores para leer rápido si hay viento fuerte u olas incómodas.
-- Recomendaciones: las dos técnicas que mejor encajan ahora en el sitio elegido, con una puntuación y el porqué.
+1. **Foto/mapa del spot** y ficha corta (fondo, costa, exposición, direcciones).
+2. **Ahora:** visibilidad (etiqueta + score + metros), marea, corriente (fuerza + dirección), mejor hora de entrada y mar cercano (viento/olas/swell de la franja más próxima).
+3. **Detalle bajo demanda** (expanders): solunar completo, tabla Windy, visibilidad por horas, contexto de los últimos 3 días, corrientes, historial y raw técnico.
 
 Puedes cambiar de sitio y de día en el menú lateral. Si miras días pasados, ves lo que se guardó ese día; si miras hoy, puedes actualizar los datos con un botón.
 
-![Pantalla principal con condiciones y recomendaciones](docs/images/pantalla-condiciones.png)
-*Captura de pantalla: condiciones del mar y recomendaciones para un sitio.*
+![Pantalla principal con condiciones y visibilidad](docs/images/pantalla-condiciones.png)
+_Captura de pantalla: condiciones del mar y previsión de visibilidad._
 
 ### Registrar una salida
 
-Después de pescar, rellenas un formulario corto:
+En el menú lateral → **Registro de salida**:
 
-- Hora y sitio
-- Método que usaste
-- Nota del 0 al 10
-- Visibilidad, pulpos (opcional)
-- Unas notas libres ("agua clara, corriente suave, vi un pulpo en la roca de la derecha")
+- Hora inicio/fin y sitio
+- Dirección de pesca (las definidas en el spot)
+- Agua: temperatura, visibilidad, corriente, turbidez (con preset desde snapshots, editable)
+- Apneas: sensación, promedio, profundidad, compensación
+- Avistamientos: hasta 8 especies vistas / intentadas / pescadas
 
-No tiene que ser perfecto. Cuanto más registremos, mejor aprenderá el sistema qué nos funciona.
+También puedes **editar** una salida anterior si se te olvidó algo.
 
 ![Formulario para registrar una salida](docs/images/registro-salida.png)
-*Captura de pantalla: registrar cómo fue la salida.*
+_Captura de pantalla: registrar cómo fue la salida._
 
 ### Sitios de pesca
 
-Desde el menú lateral puedes ver y gestionar los puntos que tengáis dados de alta (calas, espigones, coordenadas). Cada grupo configura los suyos; si añadís un sitio nuevo, entra aquí.
+Desde el menú lateral puedes gestionar spots: coordenadas, captura de Google Maps/Earth, ficha (prompt ChatGPT para rellenar), orientaciones y direcciones de pesca.
 
-La marea y el solunar se toman de una referencia costera que configuréis; el viento y las olas se calculan para las coordenadas de cada sitio.
+La marea y el solunar se toman de una referencia costera (Cabo Roig); el resto se calcula por coordenadas del sitio.
 
-## Métodos que comparamos
+## Métodos de pesca
 
-| Método | En pocas palabras |
-|--------|-------------------|
-| Espera | Quedarte en un sitio y esperar que pase el pez |
-| Acecho | Moverte buscando activamente |
-| Agujero | Trabajar cuevas y huecos |
-| Cerca de rompientes | Zona de oleaje / rompiente |
-| Mar adentro | Alejarte de la costa |
-
-Las recomendaciones combinan el estado del mar con lo que históricamente encaja mejor en cada sitio.
+| Método              | En pocas palabras                              |
+| ------------------- | ---------------------------------------------- |
+| Espera              | Quedarte en un sitio y esperar que pase el pez |
+| Acecho              | Moverte buscando activamente                   |
+| Agujero             | Trabajar cuevas y huecos                       |
+| Cerca de rompientes | Zona de oleaje / rompiente                     |
+| Mar adentro         | Alejarte de la costa                           |
 
 ## Cómo lo usamos en el día a día
 
-1. Antes de salir: abrimos Harpoonbook, elegimos sitio, miramos solunar, viento y recomendación.
-2. Si hace falta: actualizamos datos del día (botón Actualizar o captura Windy para todos los sitios).
+1. Antes de salir: abrimos Harpoonbook, elegimos sitio, miramos solunar, viento, corrientes, contexto reciente y visibilidad.
+2. Si hace falta: actualizamos datos del día (botón **Actualizar** captura todos los sitios; o `python -m harpoonbook`).
 3. Después de pescar: registramos la salida con nota y notas.
 4. De vez en cuando: repasamos el historial para ver patrones ("los días de marea baja en tal sitio…").
+
+## Documentación
+
+Detalle de fuentes de datos, captura y lógica de visibilidad en **[docs/](docs/README.md)**.
 
 ## Fotos del proyecto
 
 Sube las capturas a la carpeta `docs/images/` con estos nombres:
 
-- `pantalla-condiciones.png` — vista del panel con condiciones y recomendaciones
+- `pantalla-condiciones.png` — vista del panel con condiciones y visibilidad
 - `registro-salida.png` — formulario de registro tras una salida
 
 Los enlaces de arriba se verán solos cuando subas las imágenes.
@@ -98,10 +100,20 @@ streamlit run app.py
 
 Se abrirá en el navegador (por defecto `http://localhost:8501`).
 
+**Copernicus (opcional):** claridad del agua (Secchi base) requiere cuenta gratuita en [Copernicus Marine](https://data.marine.copernicus.eu/register) y `copernicusmarine login`. Sin eso, Windy, tablademareas y Open-Meteo siguen funcionando.
+
+**Captura automática** (recomendada, 1-2 veces al día):
+
+```bash
+python -m harpoonbook
+```
+
+Programar como Tarea programada de Windows en el equipo que tenga el login de Copernicus.
+
 Los datos del grupo se guardan en `data/harpoonbook.db` y van incluidos en el repositorio para que todos partamos del mismo historial.
 
 </details>
 
 ## Estado del proyecto
 
-Versión inicial. Las condiciones se recogen de fuentes públicas (tabla de mareas, Windy) y las sugerencias son orientativas: la última palabra la tiene el mar y vuestra experiencia. Con cada salida que registréis, Harpoonbook irá siendo más útil para el grupo.
+Versión inicial. Las condiciones se recogen de fuentes públicas y la previsión de visibilidad es orientativa: la última palabra la tiene el mar y vuestra experiencia. Con cada salida que registréis, Harpoonbook irá siendo más útil para el grupo.
